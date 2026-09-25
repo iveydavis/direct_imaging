@@ -102,8 +102,8 @@ class Star:
             
         self.luminosity = calculate_stellar_luminosity(self.wavelength_range, self.temp, self.radius)
         self.radiance = calculate_stellar_radiance(self.wavelength_range, self.temp)
-        self.center_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
-        self.photon_energy = (const.h*const.c/self.center_wave).to('erg')
+        self.centre_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
+        self.photon_energy = (const.h*const.c/self.centre_wave).to('erg')
         return
     
     
@@ -123,8 +123,8 @@ class Star:
             self.dim = check_units({'dim':linear_extent}, default_star_vals)['dim']
         if wavelength_range is not None:
             assert(len(wavelength_range) == 2)
-            self.center_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
-            self.photon_energy = (const.h*const.c/self.center_wave).to('erg')
+            self.centre_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
+            self.photon_energy = (const.h*const.c/self.centre_wave).to('erg')
             self.radiance = calculate_stellar_radiance(self.wavelength_range, self.temp)
         self.pix_res = self.linear_extent/self.dim
         

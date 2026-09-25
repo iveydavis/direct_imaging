@@ -10,19 +10,9 @@ from hcipy import (make_pupil_grid,
                    VortexCoronagraph,
                    Apodizer,
                    Wavefront)
-import misc
+from misc import get_band_info, check_units
 from default_vals import instruments, default_instrument, bands
 import numpy as np
-
-
-def get_band_info(bandname: str):
-    assert(bandname in bands), f"{bandname} not recognised band name ({list(bands)})"
-    bandpass = bands[bandname]
-    c, b = bandpass.values()
-    wmin = c - b/2
-    wmax = c + b/2
-    
-    return [wmin, wmax], c
 
 
 class Band:
@@ -43,7 +33,7 @@ class Band:
 class Instrument:
     def __init__(self, band, name:str = None, res_sampling=6, **kwargs):
         # one band per instrument instance
-        misc.check_units(kwargs, default_instrument)
+        check_units(kwargs, default_instrument)
         
         if 'N' in kwargs:
             self.iwa_fac = kwargs['N']
@@ -79,11 +69,12 @@ class Instrument:
 
         spat_res = self.band.centre_wave * self.focal_length/self.ap_diam
         radius = int(self.n_pix/2)
+        self.res_sampling = res_sampling
+        self.radius = radius
         self.focal_grid = make_focal_grid(q=res_sampling,
                                           num_airy = np.ceil(radius/res_sampling).astype(int),
                                           pupil_diameter = self.ap_diam,
                                           focal_length = self.focal_length,
-                                          # spatial_resolution = spat_res,
                                           reference_wavelength=self.band.centre_wave)
         
         return

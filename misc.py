@@ -13,3 +13,11 @@ def check_units(kwarg_dict, default_dict):
                 kwarg_dict[k] = kwarg_dict[k] * default_dict[k].unit
     return kwarg_dict
 
+def get_band_info(bandname: str):
+    assert(bandname in bands), f"{bandname} not recognised band name ({list(bands)})"
+    bandpass = bands[bandname]
+    c, b = bandpass.values()
+    wmin = c - b/2
+    wmax = c + b/2
+    
+    return [wmin, wmax], c
