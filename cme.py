@@ -1,39 +1,46 @@
 import numpy as np
 from default_vals import default_cme_vals
+from misc import check_units
 from scipy.ndimage import gaussian_filter
 from astropy import units as un, constants as const
+import matplotlib.pyplot as plt
 
 class CME:
     def __init__(self, **kwargs):
+        """
+        Class for modelling CME
+        :param **kwargs: number of pixels in each dimension of each grid (dim)
+
+        """
         for k in default_cme_vals:
             if k in kwargs:
-                self.__dict__.update({k:kwargs[k]})
+                self.__dict__.update({k:check_units({k:kwargs[k]}, default_cme_vals)[k]})
             else:
                 self.__dict__.update({k:default_cme_vals[k]})
                 
         if self.dim%2 == 0:
+            print(f"Dimension needs to be odd, changing to {self.dim+1}")
             self.dim += 1
         
-        self.grid_norm = None
         return
     
         
     def build_cme_normalized_grid(self, smear=False, smear_sig=3, **kwargs):
         for k in kwargs:
-            self.__dict__.update({k:kwargs[k]})
+            self.__dict__.update({k:check_units(self.__dict__, default_cme_vals)[k]})
             
         assert(self.dR_factor < 1)
 
-        Rc = int(self.dim/2) +1
+        Rc = int(self.dim/2) + 1 # dimension of CME subset grid
         
-        dR = Rc * self.dR_factor
-        grid = np.zeros((Rc,Rc))
+        dR = Rc * self.dR_factor # fraction of the quadrant that the CME radii encompass
+        grid = np.zeros((Rc,Rc)) # start with a quadrant of the grid to enforce symmetry
         
         for j in range(int(dR/2)):
             Rmin = dR +j + dR*self.horizontal_height_factor
             Rmax = dR*2 - j + dR*self.horizontal_height_factor
             
-            phi_hw = np.pi/4
+            phi_hw = self.phi_HW
             a = np.pi/2 /phi_hw
             
             phi = np.linspace(0, np.pi/4, Rc)
@@ -103,7 +110,7 @@ class CME:
         for k in kwargs:
             self.__dict__.update({k:kwargs[k]})
             
-        if self.grid_norm is None:
+        if "grid_norm" not in self.__dict__:
             self.build_cme_normalized_grid()
             
         center = (self.grid_norm.shape[0]/2, self.grid_norm.shape[0]/2)
@@ -120,7 +127,28 @@ class CME:
         return 
     
     
-    def convert_linear_to_angular(self, system_distance):
-        self.grid_angular = (self.grid_distance/system_distance).to('')*un.rad.to('arcsec')
-        self.system_distance = system_distance
-        return self.grid_angular
+    def plot(self, unit:str = "particle", logscale:bool = True):
+        if unit.lower() == 'mass':
+            dat = self.grid_mass.to('g').value
+            cbar_label = r'Mass/g'
+        elif unit.lower() == 'particle':
+            dat = self.grid_number
+            cbar_label = r'Number of electrons'
+            
+
+        d = self.linear_extent.to('AU').value
+        axis_label = 'Distance [AU]'            
+                    
+        if logscale:
+            dat = np.log10(dat.value)
+            cbar_label = f"log10({cbar_label})"
+            
+        extents = [-d/2, d/2,-d/2, d/2]
+        fig, ax = plt.subplots(1,1)
+        im = ax.imshow(dat, extent=extents)
+
+        ax.set_xlabel(axis_label)
+        ax.set_ylabel(axis_label)
+        cbar = plt.colorbar(im)
+        cbar.set_label(cbar_label)
+        return

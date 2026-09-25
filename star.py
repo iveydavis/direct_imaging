@@ -90,7 +90,7 @@ class Star:
         """
         for k in default_star_vals:
             if k in kwargs:
-                self.__dict__.update(check_units(self.__dict__, default_star_vals)[k])
+                self.__dict__.update({k:check_units({k:kwargs[k]}, default_star_vals)[k]})
             else:
                 self.__dict__.update({k:default_star_vals[k]})
                 
@@ -178,9 +178,9 @@ class Star:
         """
         Converts the particle area of the wind and CME to photon fluxes
         """
-        if self.cme is None:
+        if "cme" not in self.__dict__:
             self.make_cme()
-        if self.wind is None:
+        if "wind" not in self.__dict__:
             self.make_wind()
             
         self.grid_wind_photons = self.wind.grid_scattering_factor * self.grid_stellar_photon_fluxes
@@ -266,7 +266,7 @@ class Star:
         dat = np.zeros(self.grid_cme_photons.shape) * (un.s * un.cm**2)**-1
         title = f"System distance : {self.distance}"
         if wind:
-            dat += self.grid_scattering_factor
+            dat += self.grid_wind_photons
             title = f"{title}\nMdot={self.wind.Mdot}, v_wind={self.wind.vwind}"
         if cme:
             dat += self.grid_cme_photons

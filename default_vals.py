@@ -32,11 +32,11 @@ default_star_vals = {"temp":5000*un.K,
                      "wavelength_range":[100*un.nm,1000*un.nm]}
 
 
-bands = {'I': {'center': 806*un.nm, 'bandwidth':149*un.nm},
-         'Y': {'center': 1020*un.nm, 'bandwidth':120*un.nm},
-         'J': {'center': 1220*un.nm, 'bandwidth':213*un.nm},
-         'H': {'center': 1630*un.nm, 'bandwidth':307*un.nm},
-         'K': {'center': 2190*un.nm, 'bandwidth':390*un.nm}}
+bands = {'I': {'centre': 806*un.nm, 'bandwidth':149*un.nm},
+         'Y': {'centre': 1020*un.nm, 'bandwidth':120*un.nm},
+         'J': {'centre': 1220*un.nm, 'bandwidth':213*un.nm},
+         'H': {'centre': 1630*un.nm, 'bandwidth':307*un.nm},
+         'K': {'centre': 2190*un.nm, 'bandwidth':390*un.nm}}
 
 
 instruments = {"GPI":{"bands":['Y', 'J', 'H', 'K'],
