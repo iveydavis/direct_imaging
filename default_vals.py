@@ -5,6 +5,11 @@
 from astropy import units as un, constants as const
 from numpy import pi
 
+
+default_units = {"temp": 1*un.K,
+                 "radius": 1*un.R_sun,
+                 "wavelength": 1*un.nm}
+
 default_cme_vals = {"dim":513,
                     "dR_factor":0.2, 
                     "phi_HW":pi/4,

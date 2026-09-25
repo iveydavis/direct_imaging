@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from default_vals import default_cme_vals, default_wind_vals, default_star_vals
-from astropy import units as un, constants as const
-import numpy as np
+from default_vals import *
+from astropy import units as un
 
 def check_units(kwarg_dict, default_dict):
     for k in kwarg_dict.keys():
