@@ -152,3 +152,6 @@ class CME:
         cbar = plt.colorbar(im)
         cbar.set_label(cbar_label)
         return
+    
+    def calc_pol(self):
+        return

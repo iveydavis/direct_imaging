@@ -120,7 +120,7 @@ class Star:
         if linear_extent is not None:
             self.linear_extent = check_units({'linear_extent':linear_extent}, default_star_vals)['linear_extent']
         if dim is not None:
-            self.dim = check_units({'dim':linear_extent}, default_star_vals)['dim']
+            self.dim = check_units({'dim':dim}, default_star_vals)['dim']
         if wavelength_range is not None:
             assert(len(wavelength_range) == 2)
             self.centre_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
@@ -178,9 +178,13 @@ class Star:
         """
         Converts the particle area of the wind and CME to photon fluxes
         """
+        if "grid_stellar_photon_fluxes" not in self.__dict__:
+            self.make_stellar_grids()
         if "cme" not in self.__dict__:
+            print("CME has not been made; constructing now")
             self.make_cme()
         if "wind" not in self.__dict__:
+            print("Wind has not been made; constructing now")
             self.make_wind()
             
         self.grid_wind_photons = self.wind.grid_scattering_factor * self.grid_stellar_photon_fluxes
@@ -197,6 +201,9 @@ class Star:
         self.grid_distances_angular = dist_norm*theta
         self.pix_res_ang = theta*un.arcsec/self.dim
         self.angular_extent = theta*un.arcsec
+        return
+    
+    def calc_pol(self):
         return
     
     
@@ -263,6 +270,7 @@ class Star:
         :rtype: matplotlib.figure.Figure, matplotlib.axes._subplots.AxesSubplot
 
         """
+        self.particle_to_photon_flux()
         dat = np.zeros(self.grid_cme_photons.shape) * (un.s * un.cm**2)**-1
         title = f"System distance : {self.distance}"
         if wind:

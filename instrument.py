@@ -74,8 +74,8 @@ class Instrument:
         self.focal_grid = make_focal_grid(q=res_sampling,
                                           num_airy = np.ceil(radius/res_sampling).astype(int),
                                           pupil_diameter = self.ap_diam,
-                                          focal_length = self.focal_length,
-                                          reference_wavelength=self.band.centre_wave)
+                                          f_number= self.focal_length, # this is wrong but makes correct images
+                                          reference_wavelength=self.band.centre_wave.to('m').value)
         
         return
     
@@ -83,9 +83,9 @@ class Instrument:
     def add_optical_elements(self, n_pix:int=201, charge:int=6, super_sample=True, super_samp_fact=4, lyot_fraction=0.95, pupil_factor=1.125):
         self.pupil_grid = make_pupil_grid(n_pix, diameter=self.ap_diam*pupil_factor)
         self.prop = FraunhoferPropagator(self.pupil_grid, self.focal_grid)
-        
-        ap = make_circular_aperture(self.ap_diam.to('m').value, )
+        ap = make_circular_aperture(self.ap_diam.to('m').value)
         lyot = make_circular_aperture(self.ap_diam.to('m').value*lyot_fraction)
+        
         if super_sample:
             self.ap = evaluate_supersampled(ap, 
                                             self.pupil_grid, 
@@ -104,7 +104,7 @@ class Instrument:
     
     def source_to_wavefront(self, source):
         assert("pupil_grid" in self.__dict__), "Need to run add_optical_elements before calculating wavefront"
-        assert(source.shape == self.pupil_grid.shape), "The source image should be the same dimensions as the pupil_grid"
+        assert(np.array(source.shape)[0] == self.pupil_grid.shape[0]), "The source image should be the same dimensions as the pupil_grid"
         
         arg = 0 + 0j
         xgrid = self.pupil_grid.x.reshape(self.pupil_grid.shape)
@@ -114,8 +114,8 @@ class Instrument:
             for j in range(xgrid.shape[1]):    
                 xfac = xgrid[i,j]
                 yfac = ygrid[i,j]
-                arg += source[i,j]*np.exp(xfac * np.pi *self.pupil_grid.x + yfac*np.pi*self.pupil_grid.y)
+                arg += source[i,j]*np.exp(xfac * np.pi*2j *self.pupil_grid.x + yfac*np.pi*2j*self.pupil_grid.y)
                 
-        wf = Wavefront(self.ap * arg, wavelength=self.band.centre_wave.to('m'))
+        wf = Wavefront(self.ap * arg, wavelength=self.band.centre_wave.to('m').value)
         return wf
     

@@ -83,3 +83,6 @@ class Wind:
         cbar = plt.colorbar(im)
         cbar.set_label(cbar_label)
         return fig, ax
+    
+    def calc_pol(self):
+        return

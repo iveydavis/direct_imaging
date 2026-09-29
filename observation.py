@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Fri Sep 25 09:30:49 2026
 
-@author: idavis
-"""
 from star import Star
 from instrument import Instrument
 from default_vals import default_star_vals, default_instrument, bands
 from misc import check_units, get_band_info
 from hcipy import make_focal_grid
 import numpy as np
+from astropy import units as un
 
 class Observation:
     def __init__(self, instrument:Instrument, wavelength_range=None, band:str = None, star:Star = None, source_dim:int = 513):
         if star is not None:
             assert(star.dim == source_dim), f"Star's dim property ({star.dim})should match the source_dim quantity ({source_dim})"
-        assert(len(wavelength_range) == 2)
+        if wavelength_range is not None:
+            assert(len(wavelength_range) == 2)
         if band is None:
             assert(wavelength_range is not None), "Either band or wavelength_range needs to be defined"
         elif band is not None:
@@ -26,7 +24,8 @@ class Observation:
                 self.centre_wave = (wavelength_range[0] + wavelength_range[1])/2
             elif wavelength_range is None:
                 self.wavelength_range, self.centre_wave = get_band_info(band)
-        
+                
+        self.source_dim = source_dim
         self.star = star
         self.instrument = instrument
         self._update_focal_grid()
@@ -53,8 +52,8 @@ class Observation:
         fg = make_focal_grid(q=res_sampling, 
                         num_airy = np.ceil(radius/res_sampling).astype(int),
                         pupil_diameter = pupil_diameter,
-                        focal_length = focal_length,
-                        reference_wavelength=self.centre_wave)
+                        f_number = focal_length, # likely need to fix later
+                        reference_wavelength=self.centre_wave.to('m').value)
         self.instrument.focal_grid = fg
         return
     
@@ -80,19 +79,31 @@ class Observation:
         return
     
     
-    def conduct_observation(self):
+    def conduct_observation(self, force_star=True):
         self.star.particle_to_photon_flux()
-        source = (np.nansum((self.star.grid_cme_photons, self.star.grid_wind_photons), axis=0)*self.star.pix_res**2 ).to('1/s')
+        cme_photons = (self.star.grid_cme_photons * self.star.pix_res**2).to('1/s')
+        wind_photons = (self.star.grid_wind_photons* self.star.pix_res**2).to('1/s')
+        source = np.nansum((cme_photons, wind_photons), axis=0)
+        
+        if self.star.pix_res < self.star.radius:
+            star_photons = self.star.radiance * np.pi * un.sr*self.star.pix_res.cgs**2/self.star.photon_energy
+        else:
+            star_photons = (self.star.radiance * 2 * np.pi * un.sr * self.star.radius**2/self.star.photon_energy).to('1/s')
+        
+        source[np.isnan(source)] = (self.star.luminosity/self.star.photon_energy).to('1/s').value
+        source[np.isinf(source)] = (self.star.luminosity/self.star.photon_energy).to('1/s').value
+        if force_star:
+            idx = np.where(self.star.grid_distances.value == 0)
+            source[idx] = (self.star.luminosity/self.star.photon_energy).to('1/s').value
+        self.source = source
         self.wf = self.instrument.source_to_wavefront(source)
 
-        lyot_plane = self.instrument.coro(self.wf)
-        img_ref = self.prop(self.wf)
+        lyot_plane = self.instrument.coronagraph(self.wf)
+        img_ref = self.instrument.prop(self.wf)
 
-        post_lyot_mask = self.lyot_stop(lyot_plane)
-        img = self.prop(post_lyot_mask).intensity
+        post_lyot_mask = self.instrument.lyot_stop(lyot_plane)
+        img = self.instrument.prop(post_lyot_mask)
         
         self.img_ref = img_ref
         self.img = img
         return
-    
-    
