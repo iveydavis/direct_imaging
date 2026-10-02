@@ -36,7 +36,8 @@ bands = {'I': {'centre': 806*un.nm, 'bandwidth':149*un.nm},
          'Y': {'centre': 1020*un.nm, 'bandwidth':120*un.nm},
          'J': {'centre': 1220*un.nm, 'bandwidth':213*un.nm},
          'H': {'centre': 1630*un.nm, 'bandwidth':307*un.nm},
-         'K': {'centre': 2190*un.nm, 'bandwidth':390*un.nm}}
+         'K': {'centre': 2190*un.nm, 'bandwidth':390*un.nm},
+         'NORM': {'centre':1*un.m, 'bandwidth':1*un.m}}
 
 
 instruments = {"GPI":{"bands":['Y', 'J', 'H', 'K'],
