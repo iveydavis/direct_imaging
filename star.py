@@ -44,14 +44,19 @@ class Star:
         :return: Star class instance
 
         """
-                
+        for k in default_star_vals:
+            if k in kwargs:
+                self.__dict__.update({k:check_units({k:kwargs[k]}, default_star_vals)[k]})
+            else:
+                self.__dict__.update({k:default_star_vals[k]})
+                                
         assert(len(self.wavelength_range) == 2), "wavelength_range should be list or numpy.ndarray of length 2"
         
         if self.dim % 2 == 0:
             print(f"Dimension needs to be odd, changing to {self.dim+1}")
             self.dim += 1
             
-        self.make_bb_spectrum()
+        self.make_bb_spectrum(self.wavelength_range)
         self.integrate_over_band()
         self.luminosity = self.radiance * 4 * np.pi * un.sr * self.radius.to('cm')**2
         self.centre_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
@@ -84,6 +89,7 @@ class Star:
         wavelengths = np.arange(wavelength_range[0], wavelength_range[1]+spectral_resolution, spectral_resolution)*un.nm
         sp_radiance = spectral_radiance(wavelengths, self.temp)* un.quantity.Unit(spectralIntensityUnits)/un.sr
         self.spectrum = sp_radiance
+        self.photon_spectrum = self.spectrum/(const.h * const.c/wavelengths).to('erg')
         self.wavelengths = wavelengths
         return
     
@@ -107,6 +113,7 @@ class Star:
         assert(band[0] >= self.wavelengths[0] and band[-1] <= self.wavelengths[-1])    
         idxs = np.where((self.wavelengths >= band[0]) & (self.wavelengths <= band[1]))
         self.radiance = np.nansum(self.spectrum[idxs]) * (self.wavelengths[1] - self.wavelengths[0])
+        self.photon_radiance = np.nansum(self.photon_spectrum[idxs]) * (self.wavelengths[1] - self.wavelengths[0])
         return
     
     
@@ -157,7 +164,7 @@ class Star:
             self.physical_diameter = check_units({'physical_diameter':physical_diameter}, default_star_vals)['physical_diameter']
         if dim is not None:
             self.dim = check_units({'dim':dim}, default_star_vals)['dim']
-        make_distance_grid(dim, physical_diameter, ndim=self.ndim)
+        self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=self.ndim)
         return
     
     
@@ -171,27 +178,30 @@ class Star:
         :param wavelength_range: wavelength range to evaluate stellar energy and photon fluxes. If None, uses the class instance's value, defaults to None
         :type wavelength_range: list or numpy.array of astropy.quantity.Quantity, optional
         """
-        if physical_diameter is not None or dim is not None:
-            self.make_distance_grid(physical_diameter=physical_diameter, dim=dim, ndim=self.ndim)
+        if physical_diameter is not None or dim is not None or 'grid_distances' not in self.__dict__:
+            self.make_distance_grid(physical_diameter=physical_diameter, dim=dim)
             
         if wavelength_range is not None:
             assert(len(wavelength_range) == 2)
+            if (any(isinstance(w, (int,float))) for w in wavelength_range ):
+                assert((all(isinstance(w, (int,float))) for w in wavelength_range)==True), "Mixed datatype for wavelength_range"
+                wavelength_range = [w*un.nm for w in wavelength_range]
+                
+            self.wavelength_range = wavelength_range
             self.centre_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
             self.photon_energy = (const.h*const.c/self.centre_wave).to('erg')
             self.integrate_over_band(self.wavelength_range)
             
         self.pix_res = self.physical_diameter/self.dim
         
+        energy_flux = (self.radiance * np.pi*un.sr * self.radius**2/self.grid_distances**2).to('erg/s/cm**2') # should there be a 4pi here?
+        energy_flux[self.grid_distances < self.radius] = self.radiance * np.pi*un.sr # should there be a 4pi here?
         
-        x_grid = np.array([np.abs(np.linspace(-1, 1, self.dim))]*self.dim)* self.physical_diameter/2       
-        y_grid = x_grid.transpose()
-        self.grid_distances = (x_grid**2 + y_grid**2)**0.5 
+        photon_flux = (self.photon_radiance * np.pi*un.sr * self.radius**2/self.grid_distances**2).to('s**-1 * cm**-2') # should there be a 4pi here?
+        photon_flux[self.grid_distances < self.radius] = self.photon_radiance * np.pi*un.sr 
         
-        flux = (self.radiance * np.pi*un.sr * self.radius**2/self.grid_distances**2).to('erg/s/cm**2') # should there be a 4pi here?
-        flux[self.grid_distances < self.radius] = self.radiance * np.pi*un.sr # should there be a 4pi here?
-
-        self.grid_stellar_energy_fluxes = flux
-        self.grid_stellar_photon_fluxes = self.grid_stellar_energy_fluxes/self.photon_energy
+        self.grid_stellar_energy_fluxes = energy_flux
+        self.grid_stellar_photon_fluxes = photon_flux
         self._linear_to_angular()
         return
     
@@ -254,6 +264,7 @@ class Star:
         self.pix_res_ang = theta*un.arcsec/self.dim
         self.angular_extent = theta*un.arcsec
         return
+    
     
     def calc_pol(self):
         return
@@ -361,55 +372,13 @@ class Star:
 ####################################################################    
 class Star2D(Star):
     def __init__(self, **kwargs):
-        for k in default_star_vals:
-            if k in kwargs:
-                self.__dict__.update({k:check_units({k:kwargs[k]}, default_star_vals)[k]})
-            else:
-                self.__dict__.update({k:default_star_vals[k]})
-                
-        super().__init__(**self.__dict__)
+        super().__init__(**kwargs)
         self.ndim = 2
         return
-    
-    def make_bb_spectrum(self, wavelength_range = [100,1000], spectral_resolution=1):
-        super().make_bb_spectrum(wavelength_range=wavelength_range, spectral_resolution=spectral_resolution)
-        return
-    
-    
-    def integrate_over_band(self, band=None):
-        super().integrate_over_band(band)
-        return
-    
-    
-    def make_distance_grid(self, physical_diameter=None, dim=None):
-        super().make_distance_grid(physical_diameter=physical_diameter, dim=dim, ndim=2)
-        return
-
     
 ####################################################################   
 class Star3D(Star):
     def __init__(self, **kwargs):
-        for k in default_star_vals:
-            if k in kwargs:
-                self.__dict__.update({k:check_units({k:kwargs[k]}, default_star_vals)[k]})
-            else:
-                self.__dict__.update({k:default_star_vals[k]})
-                
-        super().__init__(**self.__dict__)
+        super().__init__(**kwargs)
         self.ndim = 3
         return
-    
-    
-    def make_bb_spectrum(self, wavelength_range = [100,1000], spectral_resolution=1):
-        super().make_bb_spectrum(wavelength_range=wavelength_range, spectral_resolution=spectral_resolution)
-        return
-    
-    
-    def integrate_over_band(self, band=None):
-        super().integrate_over_band(band)
-        return
-    
-    
-    def make_distance_grid(self, physical_diameter=None, dim=None):
-        super().make_distance_grid(physical_diameter=physical_diameter, dim=dim, ndim=3)
-        return 

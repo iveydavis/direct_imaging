@@ -1,9 +1,10 @@
 from default_vals import default_wind_vals
-from misc import check_units
+from misc import check_units, make_distance_grid
 import numpy as np
 from astropy import constants as const, units as un
 import matplotlib.pyplot as plt
 
+# TODO: incorporate metallicity/ hydrogen mass fraction --> higher metallicity == more electrons (for full ionisation)
 class Wind:
     def __init__(self, **kwargs):
         """
@@ -31,15 +32,6 @@ class Wind:
         Makes grids for distances from center, particle scattering area, and
         number of scattering particles
         """
-        if "grid_distances" not in self.__dict__:
-            x_grid = np.array([np.abs(np.linspace(-1, 1, self.dim))]*self.dim)* self.physical_diameter/2    
-            y_grid = x_grid.transpose()
-            self.grid_distances = (x_grid**2 + y_grid**2)**0.5 
-            
-        # not particles per se, but essentially the fraction of the pixel area that is covered by particle area?
-        self.grid_scattering_factor = (const.sigma_T * self.Mdot/(8 * self.grid_distances * self.vwind * const.u.cgs)).to("")
-        self.grid_scattering_area = self.grid_scattering_factor * self.pix_res**2
-        self.grid_particles = self.grid_scattering_area/const.sigma_T
         return
     
     
@@ -85,3 +77,43 @@ class Wind:
     
     def calc_pol(self):
         return
+
+  
+##########################################################
+
+class Wind2D(Wind):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.ndim = 2
+        return
+    
+    def make_grids(self):
+        if "grid_distances" not in self.__dict__:
+            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter,ndim=2)
+            
+        # not particles per se, but essentially the fraction of the pixel area that is covered by particle area?
+        self.grid_scattering_factor = (const.sigma_T * self.Mdot/(8 * self.grid_distances * self.vwind * const.u.cgs)).to("")
+        self.grid_scattering_area = (self.grid_scattering_factor * self.pix_res**2).to('cm**2')
+        self.grid_particles = (self.grid_scattering_area/const.sigma_T).to('')
+        return
+
+##########################################################    
+
+class Wind3D(Wind):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.ndim = 3
+        return
+    
+    
+    def make_grids(self):
+        if "grid_distances" not in self.__dict__:
+            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=3)
+        
+        number_density = (self.Mdot/self.vwind/self.grid_distances**2/const.u).to('cm**-3')
+        self.grid_particles = (number_density * self.pix_res**3).to('')
+        self.grid_scattering_area = (self.grid_particles * const.sigma_T).to('cm**2')
+        return
+
+
+    

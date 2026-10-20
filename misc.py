@@ -39,4 +39,4 @@ def make_distance_grid(dim, physical_diameter, ndim=2):
         grid = np.zeros((dim, dim, dim))
         for i, zv in enumerate(z):
             grid[i] = np.sqrt(x**2 + y**2 + zv**2) * physical_diameter.to('au')/2
-            return grid * un.au
+        return grid * un.au
