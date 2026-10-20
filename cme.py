@@ -113,15 +113,9 @@ class CME:
         if "grid_norm" not in self.__dict__:
             self.build_cme_normalized_grid()
             
-        center = (self.grid_norm.shape[0]/2, self.grid_norm.shape[0]/2)
-
-        x_grid = np.zeros(self.grid_norm.shape)
-        center = [int(self.dim/2+1), int(self.dim/2 +1)]
-        for i in range(x_grid.shape[0]):
-            x_grid[i][:] = np.abs(np.linspace(0, x_grid.shape[0]-1, x_grid.shape[0]) - center[0])            
+        x_grid = np.array([np.abs(np.linspace(-1, 1, self.dim))]*self.dim)* self.physical_diameter/2        
         y_grid = x_grid.transpose()
-        
-        self.grid_distances = ((x_grid/self.dim)**2 + (y_grid/self.dim)**2)**0.5 * self.linear_extent
+        self.grid_distances = (x_grid**2 + y_grid**2)**0.5 
         self.grid_mass = self.grid_norm * self.mass
         self.grid_number = (self.grid_mass/const.u.cgs).to('')
         return 
@@ -136,7 +130,7 @@ class CME:
             cbar_label = r'Number of electrons'
             
 
-        d = self.linear_extent.to('AU').value
+        d = self.physical_diameter.to('AU').value
         axis_label = 'Distance [AU]'            
                     
         if logscale:

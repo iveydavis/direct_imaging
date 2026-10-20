@@ -1,11 +1,12 @@
 from astropy import units as un, constants as const
-from misc import check_units
+from misc import check_units, make_distance_grid
 from default_vals import default_star_vals, default_units
 import numpy as np
 from scipy import integrate
 from cme import CME
 from wind import Wind
 import matplotlib.pyplot as plt
+spectralIntensityUnits = 'erg*s**-1*cm**-2*nm**-1'
 
 
 def spectral_radiance(wavelength, temp):
@@ -24,7 +25,6 @@ def spectral_radiance(wavelength, temp):
     if type(wavelength) != un.Quantity:
         wavelength *= un.nm
         
-    spectralIntensityUnits = 'erg*s**-1*cm**-2*nm**-1'
     h = const.h
     c = const.c
     k = const.k_B
@@ -34,65 +34,16 @@ def spectral_radiance(wavelength, temp):
     return spectral_intensity.value
 
 
-def calculate_stellar_luminosity(wavelength_range, temp, radius):
-    """
-    Calculates the stellar luminosity over a wavelength range from Planck's law
-    :param wavelength_range: range of wavelength to calculate luminsoity over; wavelengths assumed to have unit nm if not defined
-    :type wavelength_range: list or numpy.array of floats (length 2)
-    :param temp: temperature, assumed to have unit K if not defined
-    :type temp: float
-    :param radius: radius of the star, assumed to be units of solar radii if not defined
-    :type radius: float
-    :return: luminosity in erg/s
-    :rtype: float
-
-    """
-    
-    assert(len(wavelength_range) == 2)
-    
-    radiance = calculate_stellar_radiance(wavelength_range, temp)
-    radius = check_units({'radius': radius}, default_units)['radius']
-    lum = radiance * 4 * np.pi * un.sr * radius.to('cm')**2
-    return lum
-
-
-def calculate_stellar_radiance(wavelength_range, temp):
-    """
-    Evaluate spectral radiance over wavelength range
-    :param wavelength_range: range of wavelength to calculate luminsoity over; wavelengths assumed to have unit nm if not defined
-    :type wavelength_range: list or numpy.array of floats (length 2)
-    :param temp: temperature, assumed to have unit K if not defined
-    :type temp: float
-    :return: Stellar radiance with unit erg/s/sr/cm^2
-    :rtype: astropy.quantity.Quantity
-
-    """
-    assert(len(wavelength_range) == 2)
-    
-    # Check units of inputs
-    wav_min = check_units({'wavelength':wavelength_range[0]}, default_units)['wavelength'].value
-    wav_max = check_units({'wavelength':wavelength_range[1]}, default_units)['wavelength'].value
-    temp = check_units({'temp':temp}, default_units)['temp'].value
-    
-    radiance, toss = integrate.quad(spectral_radiance, wav_min, wav_max, (temp))
-    return radiance*un.erg/un.s/un.sr/un.cm**2
-
-
 class Star:
     def __init__(self, **kwargs):
         """
         Class for determining observed stellar fluxes
         :param **kwargs: stellar radius (radius), stellar temperature (temp), 
         wavelength range (wavelength_range), distance of star (distance), the grid
-        dimension (dim), the physical extent of the grid (linear_extent)
+        dimension (dim), the physical extent of the grid (physical_diameter)
         :return: Star class instance
 
         """
-        for k in default_star_vals:
-            if k in kwargs:
-                self.__dict__.update({k:check_units({k:kwargs[k]}, default_star_vals)[k]})
-            else:
-                self.__dict__.update({k:default_star_vals[k]})
                 
         assert(len(self.wavelength_range) == 2), "wavelength_range should be list or numpy.ndarray of length 2"
         
@@ -100,39 +51,141 @@ class Star:
             print(f"Dimension needs to be odd, changing to {self.dim+1}")
             self.dim += 1
             
-        self.luminosity = calculate_stellar_luminosity(self.wavelength_range, self.temp, self.radius)
-        self.radiance = calculate_stellar_radiance(self.wavelength_range, self.temp)
+        self.make_bb_spectrum()
+        self.integrate_over_band()
+        self.luminosity = self.radiance * 4 * np.pi * un.sr * self.radius.to('cm')**2
         self.centre_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
         self.photon_energy = (const.h*const.c/self.centre_wave).to('erg')
         return
     
     
-    def make_stellar_grids(self, linear_extent=None, dim:int=None, wavelength_range=None):
+    def make_bb_spectrum(self, wavelength_range = [100,1000], spectral_resolution=1):
+        """
+        Makes a blackbody spectrum; updates the spectrum and wavelengths properties of the class
+        :param wavelength_range: The wavelength range to make the spectrum over, defaults to [100,1000] (units of nanometres)
+        :type wavelength_range: array or list of ints,floats, or astropy.units.quantity.Quantity, optional
+        :param spectral_resolution: spectral resolution for the wavelength array, defaults to 1 (units of nanometres)
+        :type spectral_resolution: int or float, optional
+
+        """
+        assert(len(wavelength_range) == 2)
+        
+        if type(wavelength_range[0]) == un.quantity.Quantity:
+            wavelength_range = [w.to('nm').value for w in wavelength_range]
+        
+        if type(spectral_resolution) == un.quantity.Quantity:
+            spectral_resolution = spectral_resolution.to('nm').value
+        
+        if wavelength_range[0] > self.wavelength_range[0].value:
+            wavelength_range[0] = self.wavelength_range[0].value
+        if wavelength_range[1] < self.wavelength_range[1].value:
+            wavelength_range[1] = self.wavelength_range[1].value
+        
+        wavelengths = np.arange(wavelength_range[0], wavelength_range[1]+spectral_resolution, spectral_resolution)*un.nm
+        sp_radiance = spectral_radiance(wavelengths, self.temp)* un.quantity.Unit(spectralIntensityUnits)/un.sr
+        self.spectrum = sp_radiance
+        self.wavelengths = wavelengths
+        return
+    
+    
+    def integrate_over_band(self, band=None):
+        """
+        Integrates the blackbody spectrum over the wavelength_range (band). Updates the radiance property
+        :param band: wavelength range to integrate over. If None, uses the class instance's wavelength_range, defaults to None
+        :type band: list or array of length two, optional
+        """
+        assert("spectrum" in self.__dict__), "Spectrum has not been made yet. Run make_bb_spectrum"
+        
+        if band is not None:
+            assert(len(band) == 2)
+            if all(isinstance(w,(int,float)) for w in band):
+                band = [b*un.nm for b in band]
+            self.wavelength_range = band
+        else:
+            band = self.wavelength_range
+            
+        assert(band[0] >= self.wavelengths[0] and band[-1] <= self.wavelengths[-1])    
+        idxs = np.where((self.wavelengths >= band[0]) & (self.wavelengths <= band[1]))
+        self.radiance = np.nansum(self.spectrum[idxs]) * (self.wavelengths[1] - self.wavelengths[0])
+        return
+    
+    
+    def plot_spectrum(self, logy:bool = False, plot_band:bool = True, wavelength_unit='nm', yunit='energy'):
+        """
+        Plots the spectrum
+        :param logy: if True, plots the y axis in log scale, defaults to False
+        :type logy: bool, optional
+        :param plot_band: if True, will fill in the wavelengths corresponding to the wavelength_range property, defaults to True
+        :type plot_band: bool, optional
+        :param wavelength_unit: unit to plot the wavelengths in, defaults to 'nm'
+        :type wavelength_unit: str or astropy.units.quantity.Unit, optional
+        :param yunit: unit to plot the spectrum, either 'energy' or 'photon', defaults to 'energy'
+        :type yunit: str, optional
+        :return: the figure and axis objects of the plot
+        :rtype: matplotlib.figure.Figure, matplotlib.axes._subplots.AxesSubplot
+
+        """
+        assert(yunit.lower == 'energy' or 'photon')
+        assert("spectrum" in self.__dict__), "Spectrum has not been made yet. Run make_bb_spectrum"
+        
+        if yunit.lower() == 'energy':
+            ylabel = f"Radiance ({self.spectrum.unit.to_string()})"
+            y = self.spectrum
+        elif yunit.lower() == 'photon':
+            y = self.spectrum/(const.h*const.c/self.wavelengths).to('erg')
+            ylabel = f"Photon spectral flux (photons {y.unit.to_string()})"
+            
+        fig, ax = plt.subplots()
+        w = self.wavelengths.to(wavelength_unit)
+        
+        if logy:
+            ax.semilogy(w, y)
+        else:
+            ax.plot(w, y)
+            
+        if plot_band:
+            idxs = np.where((w>=self.wavelength_range[0]) & (w<= self.wavelength_range[1]))[0]
+            ax.fill_between(w[idxs].value, y[idxs].value, y2=np.nanmin(y[idxs].value), alpha = 0.3)
+            
+        ax.set_xlabel(f"Wavelength ({w.unit.to_string()})")
+        ax.set_ylabel(ylabel)
+        return fig, ax
+    
+    
+    def make_distance_grid(self, physical_diameter=None, dim=None):
+        if physical_diameter is not None:
+            self.physical_diameter = check_units({'physical_diameter':physical_diameter}, default_star_vals)['physical_diameter']
+        if dim is not None:
+            self.dim = check_units({'dim':dim}, default_star_vals)['dim']
+        make_distance_grid(dim, physical_diameter, ndim=self.ndim)
+        return
+    
+    
+    def make_stellar_grids(self, physical_diameter=None, dim:int=None, wavelength_range=None):
         """
         Makes grids for physical distances centered on star, angular distances, energy flux, and photon flux
-        :param linear_extent: Physical extent of the grid. If None, uses the class instance's value. defaults to None
-        :type linear_extent: astropy.quantity.Quantity, optional
+        :param physical_diameter: Physical extent of the grid. If None, uses the class instance's value. defaults to None
+        :type physical_diameter: astropy.quantity.Quantity, optional
         :param dim: Number of pixels in each grid dimension. If None, uses the class instance's value, defaults to None
         :type dim: int, optional
         :param wavelength_range: wavelength range to evaluate stellar energy and photon fluxes. If None, uses the class instance's value, defaults to None
         :type wavelength_range: list or numpy.array of astropy.quantity.Quantity, optional
         """
-        if linear_extent is not None:
-            self.linear_extent = check_units({'linear_extent':linear_extent}, default_star_vals)['linear_extent']
-        if dim is not None:
-            self.dim = check_units({'dim':dim}, default_star_vals)['dim']
+        if physical_diameter is not None or dim is not None:
+            self.make_distance_grid(physical_diameter=physical_diameter, dim=dim, ndim=self.ndim)
+            
         if wavelength_range is not None:
             assert(len(wavelength_range) == 2)
             self.centre_wave = (self.wavelength_range[0] + self.wavelength_range[1])/2 
             self.photon_energy = (const.h*const.c/self.centre_wave).to('erg')
-            self.radiance = calculate_stellar_radiance(self.wavelength_range, self.temp)
-        self.pix_res = self.linear_extent/self.dim
+            self.integrate_over_band(self.wavelength_range)
+            
+        self.pix_res = self.physical_diameter/self.dim
         
         
-        center = int(self.dim/2)
-        x_grid = np.array([np.abs(np.linspace(0, self.dim-1, self.dim) - center)]*self.dim)            
+        x_grid = np.array([np.abs(np.linspace(-1, 1, self.dim))]*self.dim)* self.physical_diameter/2       
         y_grid = x_grid.transpose()
-        self.grid_distances = ((x_grid/self.dim)**2 + (y_grid/self.dim)**2)**0.5 * self.linear_extent
+        self.grid_distances = (x_grid**2 + y_grid**2)**0.5 
         
         flux = (self.radiance * np.pi*un.sr * self.radius**2/self.grid_distances**2).to('erg/s/cm**2') # should there be a 4pi here?
         flux[self.grid_distances < self.radius] = self.radiance * np.pi*un.sr # should there be a 4pi here?
@@ -151,7 +204,7 @@ class Star:
         :param smear_sig: Signficance of smearing/smoothing, defaults to 3
         :type smear_sig: float, optional
         """
-        cme = CME(dim=self.dim)
+        cme = CME(dim=self.dim, physical_diameter=self.physical_diameter)
         for k in kwargs:
             cme.__dict__.update({k:kwargs[k]})
             
@@ -165,10 +218,9 @@ class Star:
         """
         Makes Wind class instance and related grids
         """
-        wind = Wind()
+        wind = Wind(dim=self.dim, physical_diameter=self.physical_diameter)
         for k in kwargs:
             wind.__dict__.update({k:kwargs[k]})
-        wind.dim = self.dim
         wind.make_grids()
         self.wind = wind
         return
@@ -196,8 +248,8 @@ class Star:
         """
         Converts from linear scale to angular scale
         """
-        dist_norm = self.grid_distances/(self.linear_extent)
-        theta = (self.linear_extent/self.distance).to('') * un.rad.to('arcsec')
+        dist_norm = self.grid_distances/(self.physical_diameter)
+        theta = (self.physical_diameter/self.distance).to('') * un.rad.to('arcsec')
         self.grid_distances_angular = dist_norm*theta
         self.pix_res_ang = theta*un.arcsec/self.dim
         self.angular_extent = theta*un.arcsec
@@ -233,7 +285,7 @@ class Star:
         if scale.lower() == 'linear':
             # convert to flux received by a detector
             dat = (dat * self.pix_res**2/ (4 * np.pi * self.distance**2)).to(units)
-            d = self.linear_extent.to('AU').value
+            d = self.physical_diameter.to('AU').value
             axis_label = 'Distance [AU]'            
         elif scale.lower() == 'angular':
             d = self.angular_extent.to('arcsec').value
@@ -283,7 +335,7 @@ class Star:
         if scale.lower() == 'linear':
             # convert to flux received by a detector
             dat = (dat * self.pix_res**2/ (4 * np.pi * self.distance**2)).to('s**-1 * cm**-2')
-            d = self.linear_extent.to('AU').value
+            d = self.physical_diameter.to('AU').value
             axis_label = 'Distance [AU]'
         elif scale.lower() == 'angular':
             d = self.angular_extent.to('arcsec').value
@@ -304,3 +356,60 @@ class Star:
         cbar = plt.colorbar(im)
         cbar.set_label(cbar_label)
         return fig, ax
+    
+    
+####################################################################    
+class Star2D(Star):
+    def __init__(self, **kwargs):
+        for k in default_star_vals:
+            if k in kwargs:
+                self.__dict__.update({k:check_units({k:kwargs[k]}, default_star_vals)[k]})
+            else:
+                self.__dict__.update({k:default_star_vals[k]})
+                
+        super().__init__(**self.__dict__)
+        self.ndim = 2
+        return
+    
+    def make_bb_spectrum(self, wavelength_range = [100,1000], spectral_resolution=1):
+        super().make_bb_spectrum(wavelength_range=wavelength_range, spectral_resolution=spectral_resolution)
+        return
+    
+    
+    def integrate_over_band(self, band=None):
+        super().integrate_over_band(band)
+        return
+    
+    
+    def make_distance_grid(self, physical_diameter=None, dim=None):
+        super().make_distance_grid(physical_diameter=physical_diameter, dim=dim, ndim=2)
+        return
+
+    
+####################################################################   
+class Star3D(Star):
+    def __init__(self, **kwargs):
+        for k in default_star_vals:
+            if k in kwargs:
+                self.__dict__.update({k:check_units({k:kwargs[k]}, default_star_vals)[k]})
+            else:
+                self.__dict__.update({k:default_star_vals[k]})
+                
+        super().__init__(**self.__dict__)
+        self.ndim = 3
+        return
+    
+    
+    def make_bb_spectrum(self, wavelength_range = [100,1000], spectral_resolution=1):
+        super().make_bb_spectrum(wavelength_range=wavelength_range, spectral_resolution=spectral_resolution)
+        return
+    
+    
+    def integrate_over_band(self, band=None):
+        super().integrate_over_band(band)
+        return
+    
+    
+    def make_distance_grid(self, physical_diameter=None, dim=None):
+        super().make_distance_grid(physical_diameter=physical_diameter, dim=dim, ndim=3)
+        return 

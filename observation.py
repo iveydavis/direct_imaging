@@ -83,8 +83,7 @@ class Observation:
         return
     
     
-    def conduct_observation(self, force_star = True, stokes=['I']):        
+    def conduct_observation(self, force_star = True):        
         self.make_obs_source(force_star=force_star)
-        self.instrument.source_to_image(self.source, stokes=stokes)
-        self.stokes = stokes
+        self.instrument.source_to_image(self.source)
         return

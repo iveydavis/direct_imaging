@@ -10,7 +10,8 @@ from hcipy import (make_pupil_grid,
                    FraunhoferPropagator,
                    VortexCoronagraph,
                    Apodizer,
-                   Wavefront)
+                   Wavefront,
+                   LinearPolarizingBeamSplitter)
 from misc import get_band_info, check_units, un
 from default_vals import instruments, default_instrument, bands
 import numpy as np
@@ -154,19 +155,56 @@ class Instrument:
         return
 
 
-    def source_to_image(self, source, stokes:list = ['I']):
+    def source_to_image_pol(self, source, pol_fraction=0.10, add_noise:bool=True):
         assert(np.array(source.shape)[0] == self.pupil_grid.shape[0]), "The source image should be the same dimensions as the pupil_grid"
         assert('coronagraph' in self.__dict__), "Coronagraph hasn't been made yet"
         
-        stokes_dict = {}
-        for i,s in enumerate(stokes):
-            assert(s.upper() in ['I', 'Q', 'U', 'V']), f"{s} not recognised stokes parameter"
-            stokes_dict.update({s: i})
+        pbs = LinearPolarizingBeamSplitter(0)
+        star_vector = [1,0,0,0]
+        particle_vector = [1, pol_fraction, 0, 0]
         
         xgrid = self.pupil_grid.x.reshape(self.pupil_grid.shape)
         ygrid = self.pupil_grid.y.reshape(self.pupil_grid.shape)
         
-        img_shape = (len(stokes), self.focal_grid.size)
+        
+        # img_I = np.zeros(img_shape)
+        # img_pol = np.zeros(img_shape)
+        
+        rw = self.reference_wavelength.to('m').value
+        for i in range(xgrid.shape[0]):
+            for j in range(xgrid.shape[1]):    
+                xfac = xgrid[i,j]
+                yfac = ygrid[i,j]
+                arg = np.exp(xfac * np.pi*2j *self.pupil_grid.x + yfac*np.pi*2j*self.pupil_grid.y)
+                
+                if source[i,j] != np.nanmax(source):
+                    vec = particle_vector
+                else:
+                    vec = star_vector
+                    
+                wf = Wavefront(self.ap * arg, wavelength=rw, input_stokes_vector=vec)
+                wf.total_power = source[i,j]
+                
+                im1, im2 = pbs(self.prop(wf))
+                
+                if i == 0 and j == 0:
+                    img_1 = im1.power
+                    img_2 = im2.power
+                else:
+                    img_1 += im1.power
+                    img_2 += im2.power
+
+        return img_1, img_2
+
+    def source_to_image(self, source, add_noise:bool = True):
+        assert(np.array(source.shape)[0] == self.pupil_grid.shape[0]), "The source image should be the same dimensions as the pupil_grid"
+        assert('coronagraph' in self.__dict__), "Coronagraph hasn't been made yet"
+        
+        
+        xgrid = self.pupil_grid.x.reshape(self.pupil_grid.shape)
+        ygrid = self.pupil_grid.y.reshape(self.pupil_grid.shape)
+        
+        img_shape = (1, self.focal_grid.size)
         img_ref = np.zeros(img_shape)
         img = np.zeros(img_shape)
         rw = self.reference_wavelength.to('m').value
@@ -185,21 +223,15 @@ class Instrument:
                 post_lyot_mask = self.lyot_stop(lyot_plane)
                 img_wf = self.prop(post_lyot_mask)
                 
-                for si, s in enumerate(stokes):
-                    if s == 'I':
-                        img[stokes_dict[s]] += img_wf.I
-                        img_ref[stokes_dict[s]] += img_ref_wf.I
-                    elif s == 'Q':
-                        img[stokes_dict[s]] += img_wf.Q
-                        img_ref[stokes_dict[s]] += img_ref_wf.Q
-                    elif s == 'U':
-                        img[stokes_dict[s]] += img_wf.U
-                        img_ref[stokes_dict[s]] += img_ref_wf.U
-                    elif s == 'V':
-                        img[stokes_dict[s]] += img_wf.V
-                        img_ref[stokes_dict[s]] += img_ref_wf.V
+                if i == 0 and j == 0:
+                    img = img_wf.I
+                    img_ref = img_ref_wf.I
+                else:
+                    img += img_wf.I
+                    img_ref += img_ref_wf.I
+
                     
-        self.img = img.reshape((len(stokes), self.focal_grid.shape[0], self.focal_grid.shape[1]))
-        self.img_ref = img_ref.reshape((len(stokes), self.focal_grid.shape[0], self.focal_grid.shape[1]))
+        self.img = img
+        self.img_ref = img_ref
         return 
     

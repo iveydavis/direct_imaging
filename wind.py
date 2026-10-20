@@ -9,7 +9,7 @@ class Wind:
         """
         Class for making spherical wind 
         :param **kwargs: mass loss rate (Mdot), wind speed (vwind), linear extent
-        of the grid (linear_extent), number of pixels in each grid dimension (dim)
+        of the grid (physical_diameter), number of pixels in each grid dimension (dim)
         :type **kwargs: TYPE
         :return: Wind class instance
         """
@@ -22,7 +22,7 @@ class Wind:
         if self.dim%2 == 0:
             print(f"Dimension needs to be odd, changing to {self.dim+1}")
             self.dim += 1
-        self.pix_res = self.linear_extent/self.dim 
+        self.pix_res = self.physical_diameter/self.dim 
         return
     
     
@@ -32,10 +32,9 @@ class Wind:
         number of scattering particles
         """
         if "grid_distances" not in self.__dict__:
-            center = int(self.dim/2)
-            x_grid = np.array([np.abs(np.linspace(0, self.dim-1, self.dim) - center)]*self.dim)            
+            x_grid = np.array([np.abs(np.linspace(-1, 1, self.dim))]*self.dim)* self.physical_diameter/2    
             y_grid = x_grid.transpose()
-            self.grid_distances = ((x_grid/self.dim)**2 + (y_grid/self.dim)**2)**0.5 * self.linear_extent
+            self.grid_distances = (x_grid**2 + y_grid**2)**0.5 
             
         # not particles per se, but essentially the fraction of the pixel area that is covered by particle area?
         self.grid_scattering_factor = (const.sigma_T * self.Mdot/(8 * self.grid_distances * self.vwind * const.u.cgs)).to("")
@@ -58,7 +57,7 @@ class Wind:
         assert(unit in ['particles', 'area', 'fractional area'])
         
         if unit == 'particles':
-            dat = self.grid_particles.value
+            dat = self.grid_particles.to('').value
             cbar_label = "Number of electrons"
         if unit == 'area':
             dat = self.grid_scattering_area.to('cm**2').value
@@ -71,7 +70,7 @@ class Wind:
             dat = np.log10(dat)
             cbar_label = r"$\log_{10}$("+cbar_label+")"
             
-        d = self.linear_extent.to('AU').value
+        d = self.physical_diameter.to('AU').value
         axis_label = 'Distance [AU]'            
 
         extents = [-d/2, d/2,-d/2, d/2]
