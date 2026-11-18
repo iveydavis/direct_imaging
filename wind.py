@@ -45,15 +45,38 @@ class Wind:
         :return: figure and axis instances
         :rtype: matplotlib.figure.Figure, matplotlib.axes._subplots.AxesSubplot
         """
+        return
+    
+    def calc_pol(self):
+        return
+
+  
+##########################################################
+
+class Wind2D(Wind):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.ndim = 2
+        return
+    
+    
+    def make_grids(self):
+        if "grid_distances" not in self.__dict__:
+            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter,ndim=2)
+            
+        self.grid_scattering_factor = self.Mdot.cgs * const.sigma_T.cgs/(4 * self.vwind.cgs * const.u.cgs * self.grid_distances.cgs)
+        self.grid_scattering_area = self.grid_scattering_factor * self.pix_res.cgs**2
+        self.grid_particles = self.grid_scattering_area/const.sigma_T.cgs
+        return
+    
+
+    def plot(self, unit:str = 'particles', logscale:bool = True):
         unit = unit.lower()
-        assert(unit in ['particles', 'area', 'fractional area'])
+        assert(unit in ['particles', 'fractional area'])
         
         if unit == 'particles':
             dat = self.grid_particles.to('').value
             cbar_label = "Number of electrons"
-        if unit == 'area':
-            dat = self.grid_scattering_area.to('cm**2').value
-            cbar_label = r"Scattering area [cm$^2$]"
         elif unit == 'fractional area':
             dat = self.grid_scattering_factor.value
             cbar_label = r"Scattering fraction"
@@ -74,30 +97,10 @@ class Wind:
         cbar = plt.colorbar(im)
         cbar.set_label(cbar_label)
         return fig, ax
-    
-    def calc_pol(self):
-        return
 
-  
-##########################################################
-
-class Wind2D(Wind):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.ndim = 2
-        return
-    
-    def make_grids(self):
-        if "grid_distances" not in self.__dict__:
-            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter,ndim=2)
-            
-        # not particles per se, but essentially the fraction of the pixel area that is covered by particle area?
-        self.grid_scattering_factor = (const.sigma_T * self.Mdot/(8 * self.grid_distances * self.vwind * const.u.cgs)).to("")
-        self.grid_scattering_area = (self.grid_scattering_factor * self.pix_res**2).to('cm**2')
-        self.grid_particles = (self.grid_scattering_area/const.sigma_T).to('')
-        return
 
 ##########################################################    
+
 
 class Wind3D(Wind):
     def __init__(self, **kwargs):
@@ -110,9 +113,50 @@ class Wind3D(Wind):
         if "grid_distances" not in self.__dict__:
             self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=3)
         
-        number_density = (self.Mdot/self.vwind/self.grid_distances**2/const.u).to('cm**-3')
+        number_density = (self.Mdot/self.vwind/self.grid_distances**2/const.u/(4 * np.pi)).to('cm**-3')
         self.grid_particles = (number_density * self.pix_res**3).to('')
         self.grid_scattering_area = (self.grid_particles * const.sigma_T).to('cm**2')
+        return
+    
+    
+    def plot(self, index:int = None, unit='particles', logscale=True, axis: int = 0):
+        
+        unit = unit.lower()
+        assert(unit in ['particles', 'area'])
+        
+        if unit == 'particles':
+            dat = self.grid_particles.to('').value
+            cbar_label = "Number of electrons"
+        if unit == 'area':
+            dat = self.grid_scattering_area.to('cm**2').value
+            cbar_label = r"Scattering area [cm$^2$]"
+        
+        if index is None:
+            dat = np.nansum(dat, axis=axis)            
+        elif index is not None:
+            assert(axis <= 2)
+            if axis == 0:
+                dat = dat[index, :, :]
+            if axis == 1:
+                dat = dat[:, index, :]
+            if axis == 2:
+                dat = dat[:, :, index]
+        
+        if logscale:
+            dat = np.log10(dat)
+            cbar_label = r"$\log_{10}$("+cbar_label+")"
+            
+        d = self.physical_diameter.to('AU').value
+        axis_label = 'Distance [AU]'            
+
+        extents = [-d/2, d/2,-d/2, d/2]
+        fig, ax = plt.subplots(1,1)
+        im = ax.imshow(dat, extent=extents)
+
+        ax.set_xlabel(axis_label)
+        ax.set_ylabel(axis_label)
+        cbar = plt.colorbar(im)
+        cbar.set_label(cbar_label)
         return
 
 

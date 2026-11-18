@@ -70,6 +70,7 @@ class Instrument:
             
         if self.normalise:
             self.focal_length = 1*un.m
+            self.ap_diam = 1 * un.m
             band = 'NORM'
         
         assert(type(band) == str or Band), "band should either be str of band name or Band class instance"

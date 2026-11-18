@@ -52,7 +52,12 @@ instruments = {"GPI":{"bands":['Y', 'J', 'H', 'K'],
                       "ap_diam": 8*un.m,
                       "focal_length": 0.23 * un.m, # I'm guessing here
                       "iwa_fac": 1
-                          }
+                          },
+               "NORM": {"bands":["NORM"],
+                        "n_pix":200,
+                        "ap_diam":1*un.m,
+                        "focal_length":1*un.m,
+                        "iwa_fac":1}
             }
 
 default_instrument = instruments["HWO"]

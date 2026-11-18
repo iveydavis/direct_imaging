@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from star import Star
+from star import Star,Star2D,Star3D
 from instrument import Instrument
 from default_vals import default_star_vals, default_instrument, bands
 from misc import check_units, get_band_info
@@ -9,6 +9,7 @@ from hcipy import make_focal_grid
 import numpy as np
 from astropy import units as un
 import warnings
+
 
 class Observation:
     def __init__(self, instrument:Instrument, wavelength_range=None, band:str = None, star:Star = None, source_dim:int = 513, normalise=True):
@@ -43,8 +44,16 @@ class Observation:
         return
     
 
-    def add_star(self, **kwargs):
-        star = Star(dim=self.source_dim, wavelength_range=self.wavelength_range)
+    def add_star(self, ndim=2, **kwargs):
+        if self.instrument.band.bandname.upper() == "NORM":
+            wl = [100*un.nm, 1000*un.nm]
+        else:
+            wl = self.band
+            
+        if ndim == 2:
+            star = Star2D(dim=self.source_dim,  wavelength_range=wl)
+        if ndim == 3:
+            star = Star3D(dim=self.source_dim,  wavelength_range=wl)
         for k in kwargs:
             if k in default_star_vals and (k != "dim" or "wavelength_range"):
                 star.__dict__.update({k:kwargs[k]})
