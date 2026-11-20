@@ -29,15 +29,15 @@ class CME:
         return
     
         
-    def make_grids(self, **kwargs):
+    def make_grids(self, remake_distance=False, **kwargs):
         for k in kwargs:
             self.__dict__.update({k:kwargs[k]})
             
         if "grid_norm" not in self.__dict__:
             self.build_cme_normalized_grid()
         
-        if "grid_distances" not in self.__dict__:
-            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=self.ndim)
+        if remake_distance or 'grid_distances' not in self.__dict__:
+            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=3, cube=False)
             
         self.grid_mass = self.grid_norm * self.mass
         self.grid_particles = (self.grid_mass/const.u.cgs).to('')
@@ -248,6 +248,7 @@ class CME3D(CME):
                                                      
         self.grid_norm = grid_full/np.nansum(grid_full)
         return
+    
     
     
     def plot(self, index:int = None, axis=0, unit:str = "particle", logscale:bool = True):

@@ -109,10 +109,9 @@ class Wind3D(Wind):
         return
     
     
-    def make_grids(self):
-        if "grid_distances" not in self.__dict__:
-            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=3)
-        
+    def make_grids(self, remake_distance=False):
+        if remake_distance or 'grid_distances' not in self.__dict__:
+            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=3, cube=False)
         number_density = (self.Mdot/self.vwind/self.grid_distances**2/const.u/(4 * np.pi)).to('cm**-3')
         self.grid_particles = (number_density * self.pix_res**3).to('')
         self.grid_scattering_area = (self.grid_particles * const.sigma_T).to('cm**2')

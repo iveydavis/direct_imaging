@@ -5,8 +5,11 @@ import numpy as np
 from cme import CME2D, CME3D
 from wind import Wind2D, Wind3D
 import matplotlib.pyplot as plt
+import copy
 spectralIntensityUnits = 'erg*s**-1*cm**-2*nm**-1'
 
+# TODO: Figure out scattering fraction geometry and polarization in 2D
+# TODO: Fix polarization cancellation
 
 def spectral_radiance(wavelength, temp):
     """
@@ -186,7 +189,10 @@ class Star:
             self.physical_diameter = check_units({'physical_diameter':physical_diameter}, default_star_vals)['physical_diameter']
         if dim is not None:
             self.dim = check_units({'dim':dim}, default_star_vals)['dim']
-        self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=self.ndim)
+        if self.ndim == 2:
+            self.grid_distances = make_distance_grid(self.dim, self.physical_diameter, ndim=self.ndim)
+        elif self.ndim == 3:
+            self.grid_distances, self.grid_coordinates, self.costheta2 = make_distance_grid(self.dim, self.physical_diameter, ndim=self.ndim, cube=True, sys_dist=self.distance)
         return
     
     
@@ -243,8 +249,13 @@ class Star:
             cme = CME3D(dim=self.dim, physical_diameter=self.physical_diameter, **kwargs)
             cme.build_cme_normalized_grid()
             
+        cme.grid_distances = self.grid_distances
         cme.make_grids()
         self.cme = cme
+        self.grid_cme_photons = (self.cme.grid_particles * const.sigma_T * self.grid_stellar_photon_fluxes).cgs *(1+self.costheta2)/2
+        
+        pol_fact = (1 - self.costheta2)/(1 + self.costheta2)
+        self.grid_cme_pol = self.grid_cme_photons * pol_fact
         return
     
     
@@ -256,27 +267,15 @@ class Star:
             wind = Wind2D(dim=self.dim, physical_diameter=self.physical_diameter, **kwargs)
         elif self.ndim == 3:
             wind = Wind3D(dim=self.dim, physical_diameter=self.physical_diameter, **kwargs)
+        
+        wind.grid_distances = self.grid_distances
         wind.make_grids()
         self.wind = wind
+        self.grid_wind_photons = (self.wind.grid_particles * const.sigma_T.cgs * self.grid_stellar_photon_fluxes).cgs * (1+self.costheta2)/2
+        
+        pol_fact = (1 - self.costheta2)/(1 + self.costheta2)
+        self.grid_wind_pol = self.grid_wind_photons * pol_fact
         return
-    
-    
-    def particle_to_photon_flux(self):
-        """
-        Converts the particle area of the wind and CME to photon fluxes
-        """
-        if "grid_stellar_photon_fluxes" not in self.__dict__:
-            self.make_stellar_grids()
-        if "cme" not in self.__dict__:
-            print("CME has not been made; constructing now")
-            self.make_cme()
-        if "wind" not in self.__dict__:
-            print("Wind has not been made; constructing now")
-            self.make_wind()
-            
-        self.grid_wind_photons = (self.wind.grid_particles * const.sigma_T.cgs * self.grid_stellar_photon_fluxes).cgs
-        self.grid_cme_photons = (self.cme.grid_particles * const.sigma_T * self.grid_stellar_photon_fluxes).cgs#/self.pix_res**2).to("s**-1 * cm**-2")
-        return 
     
     
     def _linear_to_angular(self):
@@ -291,33 +290,45 @@ class Star:
         return
     
     
-    def calc_pol(self):
-        return
-    
-    
-    def _plot_properties(self, unit:str = 'photon', scale:str = 'linear', logscale:bool = True, index=None, axis=0):
+    def _flux_plot_properties(self, unit:str = 'photon', quantity='flux', scale:str = 'linear', frame='observer', logscale:bool = True):
         assert(scale.lower() in ['linear', 'angular'])
+        assert(frame.lower() in ['observer', 'local'])
+        assert(quantity.lower() in ['flux', 'luminosity'])
         
         if unit.lower() == 'photon':
-            units = "s**-1 * cm**-2"
-            dat = self.grid_stellar_photon_fluxes
-            cbar_label = r'photons/s/cm$^2$'
+            units = "s**-1"
+            dat = copy.deepcopy(self.grid_stellar_photon_fluxes)
+            cbar_label = 'photons'
         elif unit.lower() == 'energy':
-            units = "erg * s**-1 * cm**-2"
-            dat = self.grid_stellar_energy_fluxes
-            cbar_label = r'erg/s/cm$^2$'
-    
-        
+            units = "erg * s**-1 "
+            dat = copy.deepcopy(self.grid_stellar_energy_fluxes)
+            cbar_label = 'erg/s'
+            
+        if quantity.lower() == 'flux':
+            units += " cm**-2"
+            cbar_label += r'/cm$^2$'
+        elif quantity.lower() == 'luminosity':
+            dat *= self.pix_res**2
+            
+            
+        if frame.lower() == 'observer':
+            if quantity.lower() == 'flux':
+                dat *= self.pix_res**2
+            dat /= 4 * np.pi * self.distance**2
+            
         if scale.lower() == 'linear':
-            # convert to flux received by a detector
-            dat = (dat * self.pix_res**2/ (4 * np.pi * self.distance**2)).to(units)
             d = self.physical_diameter.to('AU').value
             axis_label = 'Distance [AU]'            
         elif scale.lower() == 'angular':
             d = self.angular_extent.to('arcsec').value
             axis_label = 'Distance [arcsec]'
             
+        dat = dat.cgs
+        if dat.unit.is_equivalent('erg/s/cm**2'):
+            dat = dat.to('erg/s/cm**2')
             
+        cbar_label = dat.unit.to_string()
+        
         if logscale:
             dat = np.log10(dat.value)
             cbar_label = f"log10({cbar_label})"
@@ -327,37 +338,7 @@ class Star:
         return fig, ax, dat, extents, cbar_label, axis_label
     
     
-    def _plot_stellar_flux_2D(self, unit:str = 'photon', scale:str = 'linear', logscale:bool = True):
-        fig, ax, dat, extents, cbar_label, axis_label = self._plot_properties(unit=unit, scale=scale, logscale=logscale)
-
-        im = ax.imshow(dat, extent=extents)
-        ax.set_xlabel(axis_label)
-        ax.set_ylabel(axis_label)
-        cbar = plt.colorbar(im)
-        cbar.set_label(cbar_label)
-        return fig, ax
-    
-    
-    def _plot_stellar_flux_3D(self, unit:str = 'photon', scale:str = 'linear', logscale:bool = True, index:int=0, axis:int = 0):
-        fig, ax, dat, extents, cbar_label, axis_label = self._plot_properties(unit=unit, scale=scale, logscale=logscale)
- 
-        if axis == 0:
-            dat = dat[index, :, :]
-        if axis == 1:
-            dat = dat[:, index, :]
-        if axis == 2:
-            dat = dat[:, :, index]
-            
-        im = ax.imshow(dat, extent=extents)
-        ax.set_xlabel(axis_label)
-        ax.set_ylabel(axis_label)
-        cbar = plt.colorbar(im)
-        cbar.set_label(cbar_label)
-        fig.suptitle(f"Surface distance from star: {self.grid_distances[index].min():.2f}")
-        return fig, ax
-    
-    
-    def plot_stellar_flux(self, unit:str = 'photon', scale:str = 'linear', logscale:bool = True, index:int=0, axis:int = 0):
+    def plot_stellar_flux(self):
         """
         Plots stellar fluxes either in terms of # of photons or energy at the Earth 
         :param unit: defines whether to plot the 'photon' or 'energy' flux, defaults to 'photon'
@@ -370,14 +351,14 @@ class Star:
         :rtype: matplotlib.figure.Figure, matplotlib.axes._subplots.AxesSubplot
 
         """
-        if self.ndim == 2:
-            self._plot_stellar_flux_2D(unit=unit, scale=scale, logscale=logscale)
-        elif self.ndim == 3:
-            self._plot_stellar_flux_3D(unit=unit, scale=scale, logscale=logscale, index=index, axis=axis)
         return 
     
     
-    def plot_particle_fluxes(self, wind:bool = True, cme:bool = True, logscale:bool = True, scale:str = 'linear', index=None, axis=None):
+    def plot_particles(self):
+        return
+    
+    
+    def plot_particle_flux(self, wind:bool = True, cme:bool = True, logscale:bool = True, scale:str = 'linear', index=None, axis=None):
         """
         plots the photons produced by the wind and/or cme
         :param wind: Defines whether to include the wind in the image, defaults to True
@@ -392,7 +373,6 @@ class Star:
         :rtype: matplotlib.figure.Figure, matplotlib.axes._subplots.AxesSubplot
 
         """
-        self.particle_to_photon_flux()
         dat = np.zeros(self.grid_cme_photons.shape) * (un.s * un.cm**2)**-1
         title = f"System distance : {self.distance}"
         if wind:
@@ -430,5 +410,178 @@ class Star:
         cbar.set_label(cbar_label)
         return fig, ax
     
+    
+
+class Star2D(Star):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.ndim = 2
+        return
+    
+    def plot_stellar_flux(self, unit:str = 'photon', quantity='flux', scale:str = 'linear', frame='observer', logscale:bool = True):
+        fig, ax, dat, extents, cbar_label, axis_label = self._flux_plot_properties(unit=unit, scale=scale, logscale=logscale)
+
+        im = ax.imshow(dat, extent=extents)
+        ax.set_xlabel(axis_label)
+        ax.set_ylabel(axis_label)
+        cbar = plt.colorbar(im)
+        cbar.set_label(cbar_label)
+        return fig, ax
+    
+    
+    def plot_particles(self, cme=True, wind=True, logscale=True, **imshow_kwargs):
+        dat = np.zeros(self.grid_distances.shape)
+        if wind:
+            dat += self.wind.grid_particles.to('').value
+        if cme:
+            dat += self.cme.grid_particles.to('').value
+            
+        if logscale:
+            dat = np.log10(dat)
+            cbar_label = "log10(N)"
+        else:
+            dat = dat.cgs.value
+            cbar_label = "N"
+        
+        d = self.physical_diameter
+        axis_label = f"Distance from star ({self.physical_diameter.unit})"
+        extents = [-d.value/2, d.value/2, -d.value/2, d.value/2]
+        
+        fig, ax = plt.subplots()
+        im = ax.imshow(dat, extent=extents, **imshow_kwargs)
+        ax.set_xlabel(axis_label)
+        ax.set_ylabel(axis_label)
+        cbar = plt.colorbar(im)
+        cbar.set_label(cbar_label)
+        return
+    
+    
+    def plot_particle_flux(self):
+        return
+    
+    
+    
+class Star3D(Star):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.ndim = 3
+        return
+    
+    
+    def plot_stellar_flux(self, unit:str = 'photon', quantity='flux', scale:str = 'linear', frame='observer', logscale:bool = True, index:int=0):
+        fig, ax, dat, extents, cbar_label, axis_label = self._flux_plot_properties(unit=unit, scale=scale, logscale=logscale)
+ 
+        dat = dat[index, :, :]
+            
+        im = ax.imshow(dat, extent=extents)
+        ax.set_xlabel(axis_label)
+        ax.set_ylabel(axis_label)
+        cbar = plt.colorbar(im)
+        cbar.set_label(cbar_label)
+        fig.suptitle(f"Surface distance from star: {self.grid_distances[index].min():.2f}")
+        return fig, ax
 
     
+    def plot_particles(self, idx:int = None, wind=True, cme=True, logscale=True, axis=0, **imshow_kwargs):
+        dat = np.zeros(self.grid_distances.shape)
+        if wind:
+            dat += self.wind.grid_particles.to('').value
+        if cme:
+            dat += self.cme.grid_particles.to('').value
+            
+        if idx is not None:
+            if axis == 0:
+                dat = dat[idx, :, :]
+            if axis == 1:
+                dat = dat[:, idx, :]
+            if axis == 2:
+                dat = dat[:, :, idx]
+                
+        elif idx is None:
+            if axis == 0:
+                dat = np.nansum(dat, axis=0)
+            if axis == 1:
+                dat = np.nansum(dat, axis=1)
+            if axis == 2:
+                dat = np.nansum(dat, axis=2)
+            
+        if logscale:
+            dat = np.log10(dat)
+            cbar_label = "log10(N)"
+        else:
+            dat = dat.cgs.value
+            cbar_label = "N"
+        
+        d = self.physical_diameter
+        axis_label = f"Distance from star ({self.physical_diameter.unit})"
+        extents = [-d.value/2, d.value/2, -d.value/2, d.value/2]
+        
+        fig, ax = plt.subplots()
+        im = ax.imshow(dat, extent=extents, **imshow_kwargs)
+        ax.set_xlabel(axis_label)
+        ax.set_ylabel(axis_label)
+        cbar = plt.colorbar(im)
+        cbar.set_label(cbar_label)
+        return fig, ax, cbar
+    
+    
+    def plot_particle_flux(self, cme=True, wind=True, scale='linear', frame='local', polarized=False, contrast=False, logscale=True, **imshow_kwargs):
+        scale = scale.lower()
+        frame = frame.lower()
+        
+        assert(scale in ['linear', 'angular'])
+        assert(frame in ['observer', 'local'])
+        
+        dat = np.zeros(self.grid_distances.shape)/un.s
+        if cme:
+            if polarized:
+                dat += self.grid_cme_pol
+            else:
+                dat += self.grid_cme_photons
+        if wind:
+            if polarized:
+                dat += self.grid_wind_pol
+            else:
+                dat += self.grid_wind_photons
+            
+        
+        if scale == 'linear':
+            d = self.physical_diameter
+            
+        elif scale == 'angular':
+            d = self.angular_extent
+        
+        unit = d.unit
+        d = d.value
+        
+        if frame == 'observer' and not contrast:
+            dat /= 4 * np.pi * self.distance.cgs**2
+        
+        cbar_label = dat.unit.to_string()
+        dat = np.nansum(dat, axis = 0)
+        if contrast:
+            cbar_label = "Contrast"
+            if 2 * self.radius < self.pix_res:
+                dat /= self.photon_radiance.cgs * 4 * np.pi * un.sr * self.pix_res.cgs**2
+            else:
+                dat /= self.photon_radiance.cgs * 4 * np.pi * un.sr * self.radius.cgs**2
+            if polarized:
+                dat *= 2
+                
+        if logscale:
+            dat = np.log10(dat.cgs.value)
+            cbar_label = f"log10({cbar_label})"
+            
+        extents = [-d/2, d/2, -d/2, d/2]
+        axis_label = f"Distance from center ({unit})"
+        
+        fig, ax = plt.subplots()
+        im = ax.imshow(dat, extent=extents, **imshow_kwargs)
+        ax.set_xlabel(axis_label)
+        ax.set_ylabel(axis_label)
+        cbar = plt.colorbar(im)
+        cbar.set_label(cbar_label)
+        return
+    
+    
+

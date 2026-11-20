@@ -197,6 +197,7 @@ class Instrument:
 
         return img_1, img_2
 
+
     def source_to_image(self, source, add_noise:bool = True):
         assert(np.array(source.shape)[0] == self.pupil_grid.shape[0]), "The source image should be the same dimensions as the pupil_grid"
         assert('coronagraph' in self.__dict__), "Coronagraph hasn't been made yet"
